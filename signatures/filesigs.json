@@ -1,0 +1,24 @@
+{
+   "signatures" : [{
+        "desc":"ELF Executable",
+        "mime":"application/octet-stream",
+        "signature":"0x7F454C46",
+        "size":4,
+        "offset":0
+    },
+    {
+        "desc":"7-zip compressed file",
+        "mime":"application/x-7z-compressed",
+        "signature":"0x377abcaf271c",
+        "size":6,
+        "offset":0
+    },
+    {
+        "desc":"Binary property list (plist)",
+        "mime":"application/x-plist",
+        "signature": "0x62706C697374",
+        "size":6,
+        "offset":0
+    }]
+}
+
