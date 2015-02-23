@@ -25,7 +25,7 @@ import Data.Word
 import Filesystem.Path
 import Filesystem.Path.CurrentOS
 import GHC.Generics
-import qualified System.IO as SI
+import qualified System.IO as SI (stdout)
 import Prelude hiding (FilePath, map, mapM, mapM_)
 
 import Debug.Trace
@@ -112,8 +112,8 @@ bs2hex bs = BSL.toStrict $ BSLB.toLazyByteString $ BSLB.byteStringHex bs
 
 
 -- Load signatures from json sigs file.
-loadSigs :: IO (Either String Signatures)
-loadSigs = BSL.readFile "../db/filesigs.json" >>=
+loadSigs :: FilePath -> IO (Either String Signatures)
+loadSigs sigsFile = (BSL.readFile $ encodeString sigsFile) >>=
     \bs -> return $ (eitherDecode bs ::  Either String Signatures)
 
 
