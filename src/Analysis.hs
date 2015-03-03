@@ -11,13 +11,8 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import qualified Data.ByteString.Lazy.Builder as BSLB
 import Control.Monad hiding (mapM, mapM_)
-import Data.Conduit.Combinators hiding
-    (print
-    , sourceDirectoryDeep
-    , sinkLazy
-    , sinkList
-    , sourceFile
-    , and)
+import qualified Data.Conduit.Combinators as CC
+import qualified Data.Conduit.Binary as CB
 import qualified Data.List as DL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T (encodeUtf8)
@@ -30,27 +25,57 @@ import Prelude hiding (FilePath, map, mapM, mapM_)
 
 import Debug.Trace
 
-test :: FilePath -> IO ()
-test fp = runResourceT $ sourceDirectoryDeep False fp $= streamFile $= determineFileType $$ sinkHandle SI.stdout
+--test :: FilePath -> IO ()
+test fp = runResourceT $ sourceDirectoryDeep False fp $= determineFileType $$ sink
 
-streamFile :: MonadResource m => Conduit FilePath m BS.ByteString
-streamFile = awaitForever sourceFile
+sink :: (MonadResource m, MonadIO m) => Sink (String,[T.Text]) m ()
+sink = do
+    val <- await
+    case val of
+        Just t -> do
+            liftIO $ print t
+            sink
+        _ -> return ()
 
 
-determineFileType :: MonadResource m => Conduit BS.ByteString m T.Text
+determineFileType :: MonadResource m => Conduit FilePath m (String, [T.Text])
 determineFileType = do
-    b <- await
-    case b of
-        Just bs -> do
-            case checkSig bs of
-                    Just fs -> yield $ T.snoc (mime fs) '\n'
-                    Nothing -> yield "No signature found\n"
+    maybeFilePath <- await
+    case maybeFilePath of
+        Just fp -> do
+            sig <- CB.sourceFile (encodeString fp) $= determineFileType' $= CC.sinkList
+            yield $ (encodeString fp, sig)
             determineFileType
+        _ -> return ()
+
+
+
+determineFileType' :: MonadResource m => Conduit BS.ByteString m T.Text
+determineFileType' = do
+    maybeBs <- await
+    case maybeBs of
+        Just bs -> do
+            case checkSig bs  of
+                Just fs -> yield $ desc fs
+                _       -> return ()
+            determineFileType'
         _ -> return ()
 
 checkSig :: BS.ByteString -> Maybe FileSig
 checkSig bs = DL.find (isSignatureOf bs) signatures'
 
+--sourceDirectoryDeepWithName b f = (f, sourceDirectoryDeep
+{-
+streamFile :: MonadResource m => Conduit FilePath m (FilePath, BS.ByteString)
+--streamFile = awaitForever sourceFile
+streamFile = do
+    filePath <- await
+    case filePath of
+        Just fp -> do
+            yield (fp, sourceFile fp)
+        _ -> return ()
+
+-}
 
 -------------------------------------------------------------------------------
 -- The magic begins!

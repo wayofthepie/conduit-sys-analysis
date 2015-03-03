@@ -25,6 +25,7 @@ library
         , aeson               >= 0.8.0.2 && < 0.8.1.0
         , bytestring          >= 0.10.4 && < 0.10.5
         , conduit-combinators >= 0.3.0.6 && < 0.3.1
+        , conduit-extra       >= 1.1.6.2 && < 1.1.8.0
         , liquidhaskell       >= 0.3.0.0 && < 0.3.1
         , system-filepath     >= 0.4.13.2 && < 0.4.14
         , magic               >= 1.1 && < 1.2
