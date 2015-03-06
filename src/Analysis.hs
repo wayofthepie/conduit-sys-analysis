@@ -1,21 +1,28 @@
 {-# LANGUAGE
     DeriveGeneric
+    , GeneralizedNewtypeDeriving
     , OverloadedStrings #-}
 
 module Analysis where
 
 import Conduit hiding (sinkHandle)
 import Control.Applicative
+import Control.Monad.Reader
 import Data.Aeson
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import qualified Data.ByteString.Lazy.Builder as BSLB
+import qualified Data.Csv as CSV
 import Control.Monad hiding (mapM, mapM_)
 import qualified Data.Conduit.Combinators as CC
 import qualified Data.Conduit.Binary as CB
 import qualified Data.List as DL
+import qualified Data.Trie as TR
+import qualified Data.Trie.Convenience as TR
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T (encodeUtf8)
+import qualified Data.Text.Read as T
+import qualified Data.Vector as V
 import Data.Word
 import Filesystem.Path
 import Filesystem.Path.CurrentOS
@@ -25,10 +32,32 @@ import Prelude hiding (FilePath, map, mapM, mapM_)
 
 import Debug.Trace
 
---test :: FilePath -> IO ()
-test fp = runResourceT $ sourceDirectoryDeep False fp $= determineFileType $$ sink
+{-
+data CsvData = CsvData
+    { fileSignatures :: [FileSignature]
+    } deriving (Eq, Show)
+-}
+newtype CsvResource a = CsvResource { unCsvResource :: ReaderT (TR.Trie T.Text) (ResourceT IO) a }
+    deriving ( Applicative
+             , Functor
+             , Monad
+             , MonadBase IO
+             , MonadIO
+             , MonadResource
+             , MonadReader (TR.Trie T.Text)
+             , MonadThrow
+             )
 
-sink :: (MonadResource m, MonadIO m) => Sink (String,[T.Text]) m ()
+run :: TR.Trie T.Text -> CsvResource a -> ResourceT IO a
+run csv = flip runReaderT csv . unCsvResource
+
+--test :: FilePath -> IO ()
+test fp1 fp2 = do
+    sigs <- loadSigsFromCsv fp1
+    runResourceT $ run sigs $ do
+        sourceDirectoryDeep False fp2 $= determineFileType $$ CC.print
+
+sink :: Sink (String,T.Text) (CsvResource) ()
 sink = do
     val <- await
     case val of
@@ -38,90 +67,96 @@ sink = do
         _ -> return ()
 
 
-determineFileType :: MonadResource m => Conduit FilePath m (String, [T.Text])
+determineFileType :: Conduit FilePath (CsvResource) (FilePath, T.Text)
 determineFileType = do
+    trie <- lift ask
+    awaitForever (\fp ->
+        CB.sourceFile (encodeString fp) $=
+        determineFileType' trie =$
+        CC.map (\t -> (fp, t)))
+
+
+
+
+{-
+    trie <- lift ask
     maybeFilePath <- await
     case maybeFilePath of
         Just fp -> do
-            sig <- CB.sourceFile (encodeString fp) $= determineFileType' $= CC.sinkList
+            sig <- CB.sourceFile (encodeString fp) $= determineFileType' trie =$ CC.sinkList
             yield $ (encodeString fp, sig)
             determineFileType
         _ -> return ()
-
-
-
-determineFileType' :: MonadResource m => Conduit BS.ByteString m T.Text
-determineFileType' = do
-    maybeBs <- await
-    case maybeBs of
+-}
+determineFileType' :: TR.Trie T.Text -> Conduit BS.ByteString CsvResource T.Text
+determineFileType' trie = do
+    maybeBs1 <- await
+    maybeBs2 <- await
+    case maybeBs1 of
         Just bs -> do
-            case checkSig bs  of
+            let sm = TR.submap bs trie
+            if TR.null sm then do
+                yield $ T.concat $ TR.elems trie
+            else do
+                case maybeBs2 of
+                    Just bsn -> do
+                        leftover $ BS.append bs bsn
+                        determineFileType' trie
+                    _ -> return ()
+            {-case checkSig fsigs bs of
                 Just fs -> yield $ desc fs
-                _       -> return ()
-            determineFileType'
+                _       -> return ()-}
         _ -> return ()
-
-checkSig :: BS.ByteString -> Maybe FileSig
-checkSig bs = DL.find (isSignatureOf bs) signatures'
-
---sourceDirectoryDeepWithName b f = (f, sourceDirectoryDeep
 {-
-streamFile :: MonadResource m => Conduit FilePath m (FilePath, BS.ByteString)
---streamFile = awaitForever sourceFile
-streamFile = do
-    filePath <- await
-    case filePath of
-        Just fp -> do
-            yield (fp, sourceFile fp)
-        _ -> return ()
+checkSig :: TR.Trie T.Text -> BS.ByteString -> Maybe T.Text
+checkSig trie bs =
 
+
+checkSig' :: TR.Trie T.Text -> BS.ByteString -> TR.Trie T.Text -> BS.ByteString -> TR.Trie T.Text
+checkSig' tAcc bsAcc trie b
+    | null $ TR.subMap b t = tAcc
+    |
+-}
+
+{-
+checkSig' :: TR.Trie T.Text -> TR.Trie T.Text -> BS.ByteString -> TR.Trie T.Text
+checkSig' trie prevSubTrie bs  =
+    if null $ TR.subMap bs trie then
+        prevSubTrie
+    else
+       checkSig'
 -}
 
 -------------------------------------------------------------------------------
 -- The magic begins!
 -------------------------------------------------------------------------------
+
 data Signatures = Signatures
-    { signatures :: [FileSig]
+    { signatures :: [FileSignature]
     } deriving (Eq, Generic, Show)
 
-data FileSig = FileSig
-    { desc   :: T.Text
-    , mime   :: T.Text
-    , sig    :: T.Text
-    , offset :: Int
-    , size   :: Int
-    } deriving (Eq, Generic, Show)
 
-instance FromJSON Signatures
-instance ToJSON Signatures
+data FileSignature = FileSignature
+    { desc     :: T.Text
+    , sig      :: BS.ByteString
+    , sigType  :: T.Text
+    , offset   :: Int
+    , fileType :: T.Text
+    , moreInfo :: T.Text
+    } deriving (Eq, Show)
 
-instance FromJSON FileSig where
-    parseJSON (Object v) =
-        FileSig <$> v .: "desc"
-                <*> v .: "mime"
-                <*> v .: "signature"
-                <*> v .: "offset"
-                <*> v .: "size"
-
-instance ToJSON FileSig
-
-
-constructFileSig :: T.Text -> T.Text -> T.Text -> Int -> Int -> FileSig
-constructFileSig d m sig off size = FileSig d m sig off size
-
-
-isSignatureOf :: BS.ByteString -> FileSig -> Bool
+isSignatureOf :: BS.ByteString -> FileSignature -> Bool
 isSignatureOf bs fs = isSignatureOf' (hexRep bs fs) fs
   where
     -- The hex representation of a ByteString.
     -- FIXME : Waaaay too many conversions...
-    hexRep :: BS.ByteString -> FileSig -> BS.ByteString
-    hexRep bs' fs' = bs2hex $ BS.take (offset fs' + size fs') bs'
+    hexRep :: BS.ByteString -> FileSignature -> BS.ByteString
+    hexRep bs' fs' = bs2hex $ BS.take (offset fs' + BS.length (sig fs')) bs'
 
 
 -- | Does the bytestring match the signature.
-isSignatureOf' :: BS.ByteString -> FileSig -> Bool
-isSignatureOf' bsl fs = and $ BS.zipWith (\l r -> l == r) bsl (text2hex $ sig fs)
+isSignatureOf' :: BS.ByteString -> FileSignature -> Bool
+isSignatureOf' bsl fs = and $ BS.zipWith (\l r -> l == r) bsl (sig fs)
 
 
 -- | Convert a Text type to a strict ByteString
@@ -136,28 +171,35 @@ bs2hex :: BS.ByteString -> BS.ByteString
 bs2hex bs = BSL.toStrict $ BSLB.toLazyByteString $ BSLB.byteStringHex bs
 
 
--- Load signatures from json sigs file.
-loadSigs :: FilePath -> IO (Either String Signatures)
-loadSigs sigsFile = (BSL.readFile $ encodeString sigsFile) >>=
-    \bs -> return $ (eitherDecode bs ::  Either String Signatures)
+loadSigsFromCsv :: FilePath -> IO (TR.Trie T.Text)
+loadSigsFromCsv fp = do
+    csvData <- BSL.readFile $ encodeString fp
+    case CSV.decode CSV.NoHeader csvData of
+        Left err -> error err
+        Right v -> return $
+            trieify $ V.foldl (\acc (d,s,st,off,ft,mi) ->
+                (FileSignature d (text2hex $ T.append "0x" $ rmSpace s)
+                    st (offset2int off) ft mi) : acc)
+                [] v
+  where
+    -- Offset in the csv data can be an integer or N/A.
+    offset2int :: T.Text -> Int
+    offset2int t | t == "N/A" = 0
+           | otherwise =
+                case T.decimal t of
+                    -- Left is an error, so return 0. This is safe because
+                    -- we are only returning the startpoint.
+                    Left _ -> 0
+                    Right (n,_) -> n
+    rmSpace :: T.Text -> T.Text
+    rmSpace t = T.filter (\c -> c /= ' ') t
 
 
--------------------------------------------------------------------------------
--- Test signatures
--------------------------------------------------------------------------------
-signatures' :: [FileSig]
-signatures' = [
-        elf_sig,
-        comp_7z_sig
-    ]
-
-
-elf_sig :: FileSig
-elf_sig = constructFileSig "ELF Executable" "" "0x7f454c46" 0 8
-
-comp_7z_sig :: FileSig
-comp_7z_sig = constructFileSig "7zip compressed file"
-    "application/x-7z-compressed" "0x377abcaf271c" 0 6
-
-
-
+trieify :: [FileSignature] -> TR.Trie T.Text
+trieify fss =
+    foldl trieBuilder TR.empty fss
+  where
+    trieBuilder :: TR.Trie T.Text -> FileSignature -> TR.Trie T.Text
+    trieBuilder t (FileSignature _ s _ _ ft _) =
+        let resolveConflict v1 v2 = T.append (T.append v1 " or ") v2
+        in  TR.insertWith' resolveConflict s ft t
