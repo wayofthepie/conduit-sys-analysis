@@ -5,18 +5,19 @@
 
 module Analysis where
 
-import Conduit hiding (sinkHandle)
+import Conduit as CC hiding (sinkHandle, sinkList)
 import Control.Applicative
 import Control.Monad.Reader
 import Data.Aeson
-import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Lazy.Char8 as BSL
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Builder as BSLB
 import qualified Data.Csv as CSV
 import Control.Monad hiding (mapM, mapM_)
 import qualified Data.Conduit.Combinators as CC
 import qualified Data.Conduit.Binary as CB
 import qualified Data.List as DL
+import Data.Maybe (fromJust)
 import qualified Data.Trie as TR
 import qualified Data.Trie.Convenience as TR
 import qualified Data.Text as T
@@ -57,6 +58,7 @@ test fp1 fp2 = do
     runResourceT $ run sigs $ do
         sourceDirectoryDeep False fp2 $= determineFileType $$ CC.print
 
+
 sink :: Sink (String,T.Text) (CsvResource) ()
 sink = do
     val <- await
@@ -72,60 +74,26 @@ determineFileType = do
     trie <- lift ask
     awaitForever (\fp ->
         CB.sourceFile (encodeString fp) $=
-        determineFileType' trie =$
+        CC.concatC $=
+        determineFileType' [] trie =$
         CC.map (\t -> (fp, t)))
 
 
-
-
-{-
-    trie <- lift ask
-    maybeFilePath <- await
-    case maybeFilePath of
-        Just fp -> do
-            sig <- CB.sourceFile (encodeString fp) $= determineFileType' trie =$ CC.sinkList
-            yield $ (encodeString fp, sig)
-            determineFileType
-        _ -> return ()
--}
-determineFileType' :: TR.Trie T.Text -> Conduit BS.ByteString CsvResource T.Text
-determineFileType' trie = do
-    maybeBs1 <- await
-    maybeBs2 <- await
-    case maybeBs1 of
-        Just bs -> do
-            let sm = TR.submap bs trie
+determineFileType' :: [Word8] -> TR.Trie T.Text -> Conduit Word8 CsvResource T.Text
+determineFileType' ws trie = do
+    maybeWord1 <- await
+    case maybeWord1 of
+        Just w1 -> do
+            let sm = TR.submap (BS.pack (ws ++ [w1])) trie
             if TR.null sm then do
-                yield $ T.concat $ TR.elems trie
-            else do
-                case maybeBs2 of
-                    Just bsn -> do
-                        leftover $ BS.append bs bsn
-                        determineFileType' trie
-                    _ -> return ()
-            {-case checkSig fsigs bs of
-                Just fs -> yield $ desc fs
-                _       -> return ()-}
+                if Prelude.null ws then
+                   yield $ "No signature found."
+                else
+                    yield $ T.concat $ TR.elems trie
+            else
+                determineFileType' (ws ++ [w1]) sm
         _ -> return ()
-{-
-checkSig :: TR.Trie T.Text -> BS.ByteString -> Maybe T.Text
-checkSig trie bs =
 
-
-checkSig' :: TR.Trie T.Text -> BS.ByteString -> TR.Trie T.Text -> BS.ByteString -> TR.Trie T.Text
-checkSig' tAcc bsAcc trie b
-    | null $ TR.subMap b t = tAcc
-    |
--}
-
-{-
-checkSig' :: TR.Trie T.Text -> TR.Trie T.Text -> BS.ByteString -> TR.Trie T.Text
-checkSig' trie prevSubTrie bs  =
-    if null $ TR.subMap bs trie then
-        prevSubTrie
-    else
-       checkSig'
--}
 
 -------------------------------------------------------------------------------
 -- The magic begins!
@@ -145,24 +113,11 @@ data FileSignature = FileSignature
     , moreInfo :: T.Text
     } deriving (Eq, Show)
 
-isSignatureOf :: BS.ByteString -> FileSignature -> Bool
-isSignatureOf bs fs = isSignatureOf' (hexRep bs fs) fs
-  where
-    -- The hex representation of a ByteString.
-    -- FIXME : Waaaay too many conversions...
-    hexRep :: BS.ByteString -> FileSignature -> BS.ByteString
-    hexRep bs' fs' = bs2hex $ BS.take (offset fs' + BS.length (sig fs')) bs'
 
-
--- | Does the bytestring match the signature.
-isSignatureOf' :: BS.ByteString -> FileSignature -> Bool
-isSignatureOf' bsl fs = and $ BS.zipWith (\l r -> l == r) bsl (sig fs)
-
-
--- | Convert a Text type to a strict ByteString
--- FIXME : Lots of conversions here, not sure if they are all needed...
-text2hex :: T.Text -> BS.ByteString
-text2hex t = BSL.toStrict $ BSLB.toLazyByteString $ BSLB.wordHex $ read $ T.unpack t
+-- | Convert a Text type to a Word8.
+-- FIXME : There must be  better way than using read.
+string2w8 :: String -> Word8
+string2w8 t = (read t) :: Word8
 
 
 -- | Convert a strict ByteString into its hex format.
@@ -178,7 +133,7 @@ loadSigsFromCsv fp = do
         Left err -> error err
         Right v -> return $
             trieify $ V.foldl (\acc (d,s,st,off,ft,mi) ->
-                (FileSignature d (text2hex $ T.append "0x" $ rmSpace s)
+                (FileSignature d (BS.pack $ fmap (string2w8 . ("0x"++))$ words s)
                     st (offset2int off) ft mi) : acc)
                 [] v
   where
@@ -200,6 +155,7 @@ trieify fss =
     foldl trieBuilder TR.empty fss
   where
     trieBuilder :: TR.Trie T.Text -> FileSignature -> TR.Trie T.Text
-    trieBuilder t (FileSignature _ s _ _ ft _) =
+    trieBuilder t (FileSignature d s _ _ ft _) =
         let resolveConflict v1 v2 = T.append (T.append v1 " or ") v2
-        in  TR.insertWith' resolveConflict s ft t
+        in  TR.insertWith' resolveConflict s (T.append (T.append ft " : ") d ) t
+
