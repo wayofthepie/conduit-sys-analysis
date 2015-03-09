@@ -82,9 +82,9 @@ Radiance High Dynamic Range image file,23 3F 52 41 44 49 41 4E,Hex,N/A,HDR,Pictu
 SPSS Data file,24 46 4C 32 40 28 23 29,Hex,N/A,SAV,Miscellaneous
 Encapsulated PostScript file,25 21 50 53 2D 41 64 6F,Hex,N/A,EPS,Word processing suite
 PDF file,25 50 44 46,Hex,N/A,PDF|FDF,Word processing suite
-Fuzzy bitmap (FBM) file, 25 62 69 74 6D 61 70,Hex,N/A,FBM,Picture
+Fuzzy bitmap (FBM) file,25 62 69 74 6D 61 70,Hex,N/A,FBM,Picture
 BinHex 4 Compressed Archive,28 54 68 69 73 20 66 69,Hex,N/A,HQX,Compressed archive
-Symantec Wise Installer log, 2A 2A 2A 20 20 49 6E 73,Hex,N/A,LOG,Miscellaneous
+Symantec Wise Installer log,2A 2A 2A 20 20 49 6E 73,Hex,N/A,LOG,Miscellaneous
 RealPlayer video file (V11+),2E 52 45 43,Hex,N/A,IVR,Multimedia
 RealMedia streaming media,2E 52 4D 46,Hex,N/A,RM|RMVB,Multimedia
 RealAudio file,2E 52 4D 46 00 00 00 12,Hex,N/A,RA,Multimedia
@@ -185,7 +185,7 @@ Install Shield compressed file,49 53 63 28,Hex,N/A,CAB|HDR,Compressed archive
 MS Reader eBook,49 54 4F 4C 49 54 4C 53,Hex,N/A,LIT,Miscellaneous
 MS Compiled HTML Help File,49 54 53 46,Hex,N/A,CHI|CHM,Windows
 Inno Setup Uninstall Log,49 6E 6E 6F 20 53 65 74,Hex,N/A,DAT,Miscellaneous
-Inter@ctive Pager Backup (BlackBerry file, 49 6E 74 65 72 40 63 74 69 76 65 20 50 61 67 65,Hex,N/A,IPD,Mobile
+Inter@ctive Pager Backup (BlackBerry file,49 6E 74 65 72 40 63 74 69 76 65 20 50 61 67 65,Hex,N/A,IPD,Mobile
 JARCS compressed archive,4A 41 52 43 53 00,Hex,N/A,JAR,Compressed archive
 AOL ART file_1,4A 47 03 0E,Hex,N/A,JG,Picture
 AOL ART file_2,4A 47 04 0E,Hex,N/A,JG,Picture
